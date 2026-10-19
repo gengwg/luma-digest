@@ -1,0 +1,7 @@
+[Unit]
+Description=Email this week's matching Luma SF events
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/luma-digest/env
+ExecStart=%h/.local/bin/luma-digest.py

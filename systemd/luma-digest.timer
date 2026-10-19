@@ -1,0 +1,9 @@
+[Unit]
+Description=Send the Luma SF digest Sunday morning
+
+[Timer]
+OnCalendar=Sun *-*-* 08:00:00 America/Los_Angeles
+Persistent=true
+
+[Install]
+WantedBy=timers.target
