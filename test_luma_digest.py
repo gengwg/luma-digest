@@ -37,18 +37,23 @@ class Parse(unittest.TestCase):
 
 
 class Pick(unittest.TestCase):
-    def test_keeps_next_seven_days_matching_keywords_sorted(self):
+    def test_keeps_next_two_weeks_matching_keywords_sorted(self):
         events = luma.parse(feed(
             vevent("20261021T010000Z", "GPU night", "inference talks"),
             vevent("20261019T160000Z", "Founders breakfast", "for startups"),
             vevent("20261020T160000Z", "Yoga in the park", "stretching"),
-            vevent("20261026T160000Z", "Kubernetes meetup", "next week, too late"),
+            vevent("20261026T160000Z", "Kubernetes meetup", "next week"),
+            vevent("20261102T160000Z", "Grafana con", "three weeks out, too late"),
             vevent("20261018T140000Z", "SRE brunch", "already started"),
         ))
         picked = luma.pick(events, NOW)
         self.assertEqual(
             [(ev["SUMMARY"], hits) for ev, hits in picked],
-            [("Founders breakfast", ["founder", "startup"]), ("GPU night", ["gpu", "inference"])],
+            [
+                ("Founders breakfast", ["founder", "startup"]),
+                ("GPU night", ["gpu", "inference"]),
+                ("Kubernetes meetup", ["kubernetes"]),
+            ],
         )
 
     def test_matches_whole_words_only(self):
@@ -64,12 +69,19 @@ class Render(unittest.TestCase):
             location="950 W Maude Ave\\, Sunnyvale",
         )))
         self.assertEqual(
-            luma.render(luma.pick(events, NOW)),
-            "Tue Oct 20 5:30PM  SGLang Meetup\nhttps://luma.com/zbp6a1e1\nmatched: sglang",
+            luma.render(luma.pick(events, NOW), NOW),
+            "== This week ==\n\nTue Oct 20 5:30PM  SGLang Meetup\nhttps://luma.com/zbp6a1e1\nmatched: sglang"
+            "\n\n\n== Next week ==\n\nNo matching events.",
         )
 
-    def test_says_so_when_nothing_matches(self):
-        self.assertEqual(luma.render([]), "No matching Luma SF events this week.")
+    def test_splits_at_seven_days(self):
+        events = luma.parse(feed(
+            vevent("20261025T145900Z", "LLM night", "last minute of week one"),
+            vevent("20261025T150000Z", "SRE night", "first minute of week two"),
+        ))
+        this_week, next_week = luma.render(luma.pick(events, NOW), NOW).split("\n\n\n")
+        self.assertIn("LLM night", this_week)
+        self.assertIn("SRE night", next_week)
 
 
 if __name__ == "__main__":

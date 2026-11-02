@@ -1,8 +1,8 @@
 [Unit]
-Description=Send the Luma SF digest Sunday morning
+Description=Send the Luma SF digest Saturday morning
 
 [Timer]
-OnCalendar=Sun *-*-* 08:00:00 America/Los_Angeles
+OnCalendar=Sat *-*-* 08:00:00 America/Los_Angeles
 Persistent=true
 
 [Install]

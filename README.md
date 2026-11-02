@@ -1,6 +1,7 @@
 # luma-digest
 
-Emails the coming week's [Luma SF](https://luma.com/sf) events that match a keyword list, every Sunday at 8am Pacific.
+Emails the next two weeks of [Luma SF](https://luma.com/sf) events that match a keyword list, every Saturday at 8am Pacific.
+Popular events fill up early, so the digest looks two weeks ahead, split into "This week" and "Next week".
 One stdlib-only Python script reading Luma's public SF iCal feed, run by a systemd user timer.
 Edit `KEYWORDS` in the script to tune what matches.
 
@@ -23,7 +24,7 @@ systemctl --user start luma-digest   # send a test email now
 ## Use
 
 ```bash
-./luma-digest.py --dry-run                 # print this week's digest
+./luma-digest.py --dry-run                 # print the digest
 systemctl --user start luma-digest         # send one now
 python3 -m unittest test_luma_digest.py
 ```

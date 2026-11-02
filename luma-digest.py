@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Email the coming week's Luma SF events that match a keyword list.
+"""Email the next two weeks of Luma SF events that match a keyword list.
 
 Reads Luma's SF city iCal feed, the documented "Add iCal Subscription" on
 luma.com/sf, so no API key or scraping is involved.
@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 FEED = "https://api.luma.com/ics/get?entity=discover&id=discplace-BDj7GNbGlsF7Cka"
 TZ = ZoneInfo("America/Los_Angeles")
+WEEK = timedelta(days=7)
 KEYWORDS = [
     "gpu", "cuda", "nvidia", "kubernetes", "k8s", "cloud native", "cncf",
     "observability", "grafana", "prometheus", "opentelemetry", "sre",
@@ -57,12 +58,13 @@ def start(ev):
 
 
 def pick(events, now):
-    week = []
+    # Two weeks because popular events fill up more than a week ahead.
+    picked = []
     for ev in events:
         hits = {m.lower() for m in PATTERN.findall(ev["SUMMARY"] + " " + ev.get("DESCRIPTION", ""))}
-        if now <= start(ev) < now + timedelta(days=7) and hits:
-            week.append((ev, sorted(hits)))
-    return sorted(week, key=lambda p: start(p[0]))
+        if now <= start(ev) < now + 2 * WEEK and hits:
+            picked.append((ev, sorted(hits)))
+    return sorted(picked, key=lambda p: start(p[0]))
 
 
 def link(ev):
@@ -71,27 +73,31 @@ def link(ev):
     return m[1] if m else ev["LOCATION"]
 
 
-def render(picked):
-    if not picked:
-        return "No matching Luma SF events this week."
-    return "\n\n".join(
-        f"{start(ev).astimezone(TZ):%a %b %-d %-I:%M%p}  {ev['SUMMARY']}\n"
-        f"{link(ev)}\nmatched: {', '.join(hits)}"
-        for ev, hits in picked
-    )
+def render(picked, now):
+    sections = []
+    for title, lo in [("This week", now), ("Next week", now + WEEK)]:
+        entries = [
+            f"{start(ev).astimezone(TZ):%a %b %-d %-I:%M%p}  {ev['SUMMARY']}\n"
+            f"{link(ev)}\nmatched: {', '.join(hits)}"
+            for ev, hits in picked
+            if lo <= start(ev) < lo + WEEK
+        ]
+        sections.append(f"== {title} ==\n\n" + ("\n\n".join(entries) or "No matching events."))
+    return "\n\n\n".join(sections)
 
 
 def main():
     # Luma 403s urllib's default User-Agent.
     req = urllib.request.Request(FEED, headers={"User-Agent": "luma-digest/1.0"})
     with urllib.request.urlopen(req, timeout=30) as r:
-        body = render(pick(parse(r.read()), datetime.now(UTC)))
+        now = datetime.now(UTC)
+        body = render(pick(parse(r.read()), now), now)
     if "--dry-run" in sys.argv:
         print(body)
         return
     user = os.environ["LUMA_GMAIL_USER"]
     msg = EmailMessage()
-    msg["Subject"] = f"Luma SF this week ({datetime.now(TZ):%b %-d})"
+    msg["Subject"] = f"Luma SF next two weeks ({datetime.now(TZ):%b %-d})"
     msg["From"] = msg["To"] = user
     msg.set_content(body)
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
