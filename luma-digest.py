@@ -16,6 +16,7 @@ import os
 import re
 import smtplib
 import sys
+import time
 import urllib.request
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
@@ -33,6 +34,25 @@ KEYWORDS = [
     "mandarin", "language learning",
 ]
 PATTERN = re.compile(r"\b(" + "|".join(map(re.escape, KEYWORDS)) + r")s?\b", re.I)
+TRANSIENT_SMTP_ERRORS = (
+    smtplib.SMTPConnectError,
+    smtplib.SMTPHeloError,
+    smtplib.SMTPServerDisconnected,
+)
+
+
+def retry(operation):
+    for attempt in range(3):
+        try:
+            return operation()
+        except (OSError, smtplib.SMTPException) as e:
+            if isinstance(e, smtplib.SMTPException) and not isinstance(e, TRANSIENT_SMTP_ERRORS):
+                raise
+            if attempt == 2:
+                raise
+            delay = 2**attempt
+            print(f"Temporary failure: {e}; retrying in {delay}s", file=sys.stderr)
+            time.sleep(delay)
 
 
 def parse(ics):
@@ -99,9 +119,13 @@ def render(picked, now):
 def main():
     # Luma 403s urllib's default User-Agent.
     req = urllib.request.Request(FEED, headers={"User-Agent": "luma-digest/1.0"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        now = datetime.now(UTC)
-        body = render(pick(parse(r.read()), now), now)
+
+    def fetch():
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.read()
+
+    now = datetime.now(UTC)
+    body = render(pick(parse(retry(fetch)), now), now)
     if "--dry-run" in sys.argv:
         print(body)
         return
@@ -110,8 +134,18 @@ def main():
     msg["Subject"] = f"Luma SF next two weeks ({datetime.now(TZ):%b %-d})"
     msg["From"] = msg["To"] = user
     msg.set_content(body)
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as s:
-        s.login(user, os.environ["LUMA_GMAIL_APP_PASSWORD"])
+
+    def smtp_session():
+        s = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30)
+        try:
+            s.login(user, os.environ["LUMA_GMAIL_APP_PASSWORD"])
+        except Exception:
+            s.close()
+            raise
+        return s
+
+    # A lost response after sending is ambiguous; retrying it could duplicate mail.
+    with retry(smtp_session) as s:
         s.send_message(msg)
 
 
