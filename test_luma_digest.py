@@ -83,6 +83,21 @@ class Render(unittest.TestCase):
         self.assertIn("LLM night", this_week)
         self.assertIn("SRE night", next_week)
 
+    def test_renders_all_day_events_without_a_time(self):
+        events = luma.parse(feed(
+            "BEGIN:VEVENT\n"
+            "DTSTART;VALUE=DATE:20261019\n"
+            "DTEND;VALUE=DATE:20261020\n"
+            "SUMMARY:GPU exhibition\n"
+            "DESCRIPTION:https://luma.com/event/gpu-exhibition\n"
+            "LOCATION:https://luma.com/event/gpu-exhibition\n"
+            "END:VEVENT\n"
+        ))
+        self.assertIn(
+            "Mon Oct 19 all day  GPU exhibition",
+            luma.render(luma.pick(events, NOW), NOW),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
