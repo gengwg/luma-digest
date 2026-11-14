@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Email the next two weeks of Luma SF events that match a keyword list.
 
-Reads Luma's SF city iCal feed, the documented "Add iCal Subscription" on
-luma.com/sf, so no API key or scraping is involved.
+Reads Luma's public SF iCal feeds and discovery API, so no API key or page
+scraping is involved.
 
 Config:
   LUMA_GMAIL_USER          Gmail address; the digest is sent from and to it
@@ -12,17 +12,21 @@ Flags:
   --dry-run  print the digest instead of sending it
 """
 
+import json
 import os
 import re
 import smtplib
 import sys
 import time
+import urllib.parse
 import urllib.request
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
-FEED = "https://api.luma.com/ics/get?entity=discover&id=discplace-BDj7GNbGlsF7Cka"
+FEED = "https://api.luma.com/ics/get"
+DISCOVER = "https://api.luma.com/discover/get-paginated-events"
+PLACE = "discplace-BDj7GNbGlsF7Cka"
 TZ = ZoneInfo("America/Los_Angeles")
 WEEK = timedelta(days=7)
 KEYWORDS = [
@@ -55,6 +59,19 @@ def retry(operation):
             time.sleep(delay)
 
 
+def download(url, params):
+    # Luma 403s urllib's default User-Agent.
+    req = urllib.request.Request(
+        f"{url}?{urllib.parse.urlencode(params)}", headers={"User-Agent": "luma-digest/1.0"}
+    )
+
+    def fetch():
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.read()
+
+    return retry(fetch)
+
+
 def parse(ics):
     # Unfold before decoding: Luma folds mid-way through multi-byte characters.
     text = re.sub(rb"\r?\n[ \t]", b"", ics).decode()
@@ -79,6 +96,44 @@ def start(ev):
         # All-day iCal dates use the calendar's local day, not UTC midnight.
         return datetime.strptime(value, "%Y%m%d").replace(tzinfo=TZ)
     return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+
+
+def fetch_events(now):
+    cutoff = now + 2 * WEEK
+    events = parse(download(FEED, {"entity": "discover", "id": PLACE}))
+    if events and max(start(ev) for ev in events) >= cutoff:
+        return events
+
+    # The city ICS feed stops at 50 events. Find later events through discovery,
+    # then get their full calendar ICS entries to preserve descriptions and dates.
+    seen = {ev["UID"].split("@")[0] for ev in events}
+    calendars = {}
+    cursor = None
+    while True:
+        params = {"discover_place_api_id": PLACE, "pagination_limit": 50}
+        if cursor:
+            params["pagination_cursor"] = cursor
+        page = json.loads(download(DISCOVER, params))
+        entries = page["entries"]
+        for item in entries:
+            event = item["event"]
+            event_id = event["api_id"]
+            start_at = datetime.fromisoformat(event["start_at"])
+            if event_id in seen or start_at >= cutoff:
+                continue
+            calendar_id = event["calendar_api_id"]
+            if calendar_id not in calendars:
+                calendars[calendar_id] = {
+                    ev["UID"].split("@")[0]: ev
+                    for ev in parse(download(FEED, {"entity": "calendar", "id": calendar_id}))
+                }
+            events.append(calendars[calendar_id][event_id])
+            seen.add(event_id)
+
+        at_cutoff = entries and datetime.fromisoformat(entries[-1]["event"]["start_at"]) >= cutoff
+        if not page["has_more"] or at_cutoff:
+            return events
+        cursor = page["next_cursor"]
 
 
 def when(ev):
@@ -117,15 +172,8 @@ def render(picked, now):
 
 
 def main():
-    # Luma 403s urllib's default User-Agent.
-    req = urllib.request.Request(FEED, headers={"User-Agent": "luma-digest/1.0"})
-
-    def fetch():
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return r.read()
-
     now = datetime.now(UTC)
-    body = render(pick(parse(retry(fetch)), now), now)
+    body = render(pick(fetch_events(now), now), now)
     if "--dry-run" in sys.argv:
         print(body)
         return
