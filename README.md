@@ -4,6 +4,7 @@ Emails the next two weeks of [Luma SF](https://luma.com/sf) events that match a 
 Popular events fill up early, so the digest looks two weeks ahead, split into "This week" and "Next week".
 One stdlib-only Python script reading Luma's public SF iCal feeds and discovery API, run by a systemd user timer.
 The discovery API supplements the 50-event city feed so the digest covers the full two weeks.
+Events outside San Francisco include a city/state location when Luma provides a US address.
 Edit `KEYWORDS` in the script to tune what matches.
 
 ## Install

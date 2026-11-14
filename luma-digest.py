@@ -158,12 +158,30 @@ def link(ev):
     return m[1] if m else ev["LOCATION"]
 
 
+def non_sf_location(ev):
+    match = re.search(
+        r"(?:^|,\s*)([^,]+),\s*([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?,\s*USA$",
+        ev.get("LOCATION", ""),
+    )
+    if match and match[1] != "San Francisco":
+        return f"{match[1]}, {match[2]}"
+    return None
+
+
+def format_event(ev, hits):
+    lines = [f"{when(ev)}  {ev['SUMMARY']}", link(ev)]
+    location = non_sf_location(ev)
+    if location:
+        lines.append(f"location: {location}")
+    lines.append(f"matched: {', '.join(hits)}")
+    return "\n".join(lines)
+
+
 def render(picked, now):
     sections = []
     for title, lo in [("This week", now), ("Next week", now + WEEK)]:
         entries = [
-            f"{when(ev)}  {ev['SUMMARY']}\n"
-            f"{link(ev)}\nmatched: {', '.join(hits)}"
+            format_event(ev, hits)
             for ev, hits in picked
             if lo <= start(ev) < lo + WEEK
         ]

@@ -166,6 +166,33 @@ class Render(unittest.TestCase):
             "\n\n\n== Next week ==\n\nNo matching events.",
         )
 
+    def test_labels_only_non_sf_locations(self):
+        events = luma.parse(feed(
+            vevent(
+                "20261019T160000Z", "GPU Palo Alto",
+                "Get up-to-date information at: https://luma.com/palo-alto\\n\\nGPU",
+                location="NODE, 180 University Ave, Palo Alto, CA 94301, USA",
+            ),
+            vevent(
+                "20261020T160000Z", "GPU SF",
+                "Get up-to-date information at: https://luma.com/sf\\n\\nGPU",
+                location="450 Powell St, San Francisco, CA 94108, USA",
+            ),
+            vevent(
+                "20261021T160000Z", "GPU hidden",
+                "Get up-to-date information at: https://luma.com/hidden\\n\\nGPU",
+            ),
+        ))
+        body = luma.render(luma.pick(events, NOW), NOW)
+
+        self.assertIn(
+            "GPU Palo Alto\nhttps://luma.com/palo-alto\nlocation: Palo Alto, CA\nmatched: gpu",
+            body,
+        )
+        self.assertIn("GPU SF\nhttps://luma.com/sf\nmatched: gpu", body)
+        self.assertIn("GPU hidden\nhttps://luma.com/hidden\nmatched: gpu", body)
+        self.assertEqual(body.count("location:"), 1)
+
     def test_splits_at_seven_days(self):
         events = luma.parse(feed(
             vevent("20261025T145900Z", "LLM night", "last minute of week one"),
