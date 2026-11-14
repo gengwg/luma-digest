@@ -54,7 +54,17 @@ def parse(ics):
 
 
 def start(ev):
-    return datetime.strptime(ev["DTSTART"], "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+    value = ev["DTSTART"]
+    if "T" not in value:
+        # All-day iCal dates use the calendar's local day, not UTC midnight.
+        return datetime.strptime(value, "%Y%m%d").replace(tzinfo=TZ)
+    return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+
+
+def when(ev):
+    dt = start(ev).astimezone(TZ)
+    time = "all day" if "T" not in ev["DTSTART"] else f"{dt:%-I:%M%p}"
+    return f"{dt:%a %b %-d} {time}"
 
 
 def pick(events, now):
@@ -77,7 +87,7 @@ def render(picked, now):
     sections = []
     for title, lo in [("This week", now), ("Next week", now + WEEK)]:
         entries = [
-            f"{start(ev).astimezone(TZ):%a %b %-d %-I:%M%p}  {ev['SUMMARY']}\n"
+            f"{when(ev)}  {ev['SUMMARY']}\n"
             f"{link(ev)}\nmatched: {', '.join(hits)}"
             for ev, hits in picked
             if lo <= start(ev) < lo + WEEK
@@ -100,7 +110,7 @@ def main():
     msg["Subject"] = f"Luma SF next two weeks ({datetime.now(TZ):%b %-d})"
     msg["From"] = msg["To"] = user
     msg.set_content(body)
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as s:
         s.login(user, os.environ["LUMA_GMAIL_APP_PASSWORD"])
         s.send_message(msg)
 
