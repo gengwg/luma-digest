@@ -1,8 +1,10 @@
 """Run: python3 -m unittest test_luma_digest.py"""
 import importlib.util
 import os
+import smtplib
 import unittest
 from datetime import UTC, datetime
+from unittest import mock
 
 HERE = os.path.dirname(__file__)
 spec = importlib.util.spec_from_file_location("luma", os.path.join(HERE, "luma-digest.py"))
@@ -59,6 +61,33 @@ class Pick(unittest.TestCase):
     def test_matches_whole_words_only(self):
         events = luma.parse(feed(vevent("20261019T160000Z", "Presreading club", "Ascension")))
         self.assertEqual(luma.pick(events, NOW), [])
+
+
+class Retry(unittest.TestCase):
+    @mock.patch.object(luma.time, "sleep")
+    def test_retries_transient_errors_with_backoff(self, sleep):
+        operation = mock.Mock(side_effect=[TimeoutError("one"), OSError("two"), "ok"])
+        self.assertEqual(luma.retry(operation), "ok")
+        self.assertEqual(operation.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
+
+    @mock.patch.object(luma.time, "sleep")
+    def test_stops_after_three_transient_errors(self, sleep):
+        operation = mock.Mock(side_effect=TimeoutError("offline"))
+        with self.assertRaises(TimeoutError):
+            luma.retry(operation)
+        self.assertEqual(operation.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    @mock.patch.object(luma.time, "sleep")
+    def test_does_not_retry_authentication_errors(self, sleep):
+        operation = mock.Mock(
+            side_effect=smtplib.SMTPAuthenticationError(535, b"bad credentials")
+        )
+        with self.assertRaises(smtplib.SMTPAuthenticationError):
+            luma.retry(operation)
+        operation.assert_called_once_with()
+        sleep.assert_not_called()
 
 
 class Render(unittest.TestCase):
